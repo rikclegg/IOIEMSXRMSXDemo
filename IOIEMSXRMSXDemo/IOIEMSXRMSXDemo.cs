@@ -146,7 +146,6 @@ namespace IOIEMSXRMSXDemo
 
         }
 
-
         //EasyIOI Notification
         public void ProcessNotification(IOINotification notification)
         {
@@ -161,6 +160,8 @@ namespace IOIEMSXRMSXDemo
 
         public void parseIOI(IOI i)
         {
+            //Create conflict set with all current orders.
+
             DataSet newDataSet = this.rmsx.CreateDataSet("DS_IOI_" + i.field("id_value").Value());
             newDataSet.AddDataPoint("handle", new IOIFieldDataPointSource(i, i.field("id_value")));
             newDataSet.AddDataPoint("change", new IOIFieldDataPointSource(i, i.field("change")));
@@ -174,6 +175,9 @@ namespace IOIEMSXRMSXDemo
 
         public void parseOrder(Order o)
         {
+
+            // Create  conflict set with all current IOIs
+
             DataSet newDataSet = this.rmsx.CreateDataSet("DS_OR_" + o.field("EMSX_SEQUENCE").value());
             newDataSet.AddDataPoint("OrderStatus", new EMSXFieldDataPointSource(o.field("EMSX_STATUS")));
             newDataSet.AddDataPoint("OrderNumber", new EMSXFieldDataPointSource(o.field("EMSX_SEQUENCE")));
