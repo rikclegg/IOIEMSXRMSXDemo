@@ -44,7 +44,7 @@
       <HintPath>..\..\cs_EasyIOI\EasyIOI\bin\Debug\EasyIOI.dll</HintPath>
     </Reference>
     <Reference Include="EasyMSX">
-      <HintPath>..\..\emsxapi_cs_EasyMSX\EasyMSX\bin\Debug\EasyMSX.dll</HintPath>
+      <HintPath>..\..\EasyMSXCSharp\EasyMSX\bin\Debug\EasyMSX.dll</HintPath>
     </Reference>
     <Reference Include="RuleMSX">
       <HintPath>..\..\cs_RuleMSX\RuleMSX\bin\Debug\RuleMSX.dll</HintPath>
