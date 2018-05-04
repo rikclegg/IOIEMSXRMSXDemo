@@ -145,18 +145,28 @@ namespace IOIEMSXRMSXDemo
 
             ruleValidIOI.AddRuleCondition(new RuleCondition("IsStockInstrumentType", new GenericStringMatch("ioitype","stock")));
             ruleValidIOI.AddRuleCondition(new RuleCondition("IsNotExpired", new IsIOINotExpired()));
+
             ruleValidIOI.AddAction(this.rmsx.CreateAction("MarkIOIValid", ActionType.ON_TRUE, new MarkIOIValid()));
-            ruleValidIOI.AddAction(this.rmsx.CreateAction("PurgeDataSet", ActionType.ON_FALSE, new PurgeDataSet(rsAutoRouteFromIOI)));
+
+            Action purgeDataSet = this.rmsx.CreateAction("PurgeDataSet", ActionType.ON_FALSE, new PurgeDataSet(rsAutoRouteFromIOI));
+            ruleValidIOI.AddAction(purgeDataSet);
 
             log("Creating rule for ValidOrder");
             Rule ruleValidOrder = rsAutoRouteFromIOI.AddRule("ValidOrder");
 
-            /* Order must be for Equity
-             * Order must have idle shares */
+            /* Order must be for Equity */
 
             ruleValidOrder.AddRuleCondition(new RuleCondition("IsEquity", new GenericStringMatch("orderAssetClass", "Equity")));
-            ruleValidOrder.AddRuleCondition(new RuleCondition("MustHaveIdleShares", new HasIdleShares()));
 
+            ruleValidOrder.AddAction(this.rmsx.CreateAction("MarkOrderValid", ActionType.ON_TRUE, new MarkOrderValid()));
+            ruleValidOrder.AddAction(purgeDataSet);
+
+            log("Creating rule for ReadyForProcessing");
+            Rule readyForProcessing = rsAutoRouteFromIOI.AddRule("ReadyForProcessing");
+            /* both order and ioi must be valid
+             * neither order nor ioi can be consumed */
+
+            readyForProcessing.AddRuleCondition(new RuleCondition("IOIAndOrderReady", new IOIAndOrderReady()));
         }
 
         //EasyIOI Notification
@@ -211,6 +221,7 @@ namespace IOIEMSXRMSXDemo
             newDataSet.AddDataPoint("orderTicker", new EMSXFieldDataPointSource(o.field("EMSX_TICKER")));
             newDataSet.AddDataPoint("orderSide", new EMSXFieldDataPointSource(o.field("EMSX_SIDE")));
             newDataSet.AddDataPoint("orderAssetClass", new EMSXFieldDataPointSource(o.field("EMSX_ASSET_CLASS")));
+            newDataSet.AddDataPoint("orderisvalid", new GenericBooleanSource(false));
 
             this.rmsx.GetRuleSet("AutoRouteFromIOI").Execute(newDataSet);
         }
@@ -345,6 +356,15 @@ namespace IOIEMSXRMSXDemo
             }
         }
 
+        class MarkOrderValid : ActionExecutor
+        {
+            public void Execute(DataSet dataSet)
+            {
+                GenericBooleanSource dps = (GenericBooleanSource)dataSet.GetDataPoint("orderisvalid").GetSource();
+                dps.SetValue(true);
+            }
+        }
+
         class PurgeDataSet :  ActionExecutor
         {
             RuleSet ruleSet;
@@ -367,6 +387,20 @@ namespace IOIEMSXRMSXDemo
                 EMSXFieldDataPointSource idleSource = (EMSXFieldDataPointSource)dataSet.GetDataPoint("OrderIdleAmount").GetSource();
                 int idleAmount = Convert.ToInt32(idleSource.GetValue());
                 return (idleAmount > 0);
+            }
+        }
+
+        class IOIAndOrderReady : RuleEvaluator
+        {
+            public override bool Evaluate(DataSet dataSet)
+            {
+                GenericBooleanSource ioiSource = (GenericBooleanSource)dataSet.GetDataPoint("ioiisvalid").GetSource();
+                GenericBooleanSource ordSource = (GenericBooleanSource)dataSet.GetDataPoint("orderisvalid").GetSource();
+
+                bool ioiValid = Convert.ToBoolean(ioiSource.GetValue());
+                bool ordValid = Convert.ToBoolean(ordSource.GetValue());
+
+                return (ioiValid && ordValid);
             }
         }
     }
