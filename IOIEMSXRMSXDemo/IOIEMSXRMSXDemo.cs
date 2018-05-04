@@ -134,62 +134,86 @@ namespace IOIEMSXRMSXDemo
 
             log("Building rules...");
 
-            log("Creating RuleSet rsOrderStates");
-            RuleSet rsOrderStates = this.rmsx.CreateRuleSet("OrderStates");
+            log("Creating RuleSet rsAutoRouteFromIOI");
+            RuleSet rsAutoRouteFromIOI = this.rmsx.CreateRuleSet("AutoRouteFromIOI");
 
-            log("Creating rule for ORDER_NEW");
-            Rule ruleOrderNew = rsOrderStates.AddRule("OrderNew");
-            ruleOrderNew.AddRuleCondition(new RuleCondition("OrderNew", new OrderNew()));
-            ruleOrderNew.AddAction(this.rmsx.CreateAction("ShowOrderNew", new ShowOrderState(this, "New Order")));
+            log("Creating rule for ValidIOI");
+            Rule ruleValidIOI = rsAutoRouteFromIOI.AddRule("ValidIOI");
 
+            /* ioi must be instrument type 'stock'
+             * ioi must not be expired */
 
+            ruleValidIOI.AddRuleCondition(new RuleCondition("IsStockInstrumentType", new GenericStringMatch("ioitype","stock")));
+            ruleValidIOI.AddRuleCondition(new RuleCondition("IsNotExpired", new IsIOINotExpired()));
+            ruleValidIOI.AddAction(this.rmsx.CreateAction("MarkIOIValid", ActionType.ON_TRUE, new MarkIOIValid()));
+            ruleValidIOI.AddAction(this.rmsx.CreateAction("PurgeDataSet", ActionType.ON_FALSE, new PurgeDataSet(rsAutoRouteFromIOI)));
+
+            log("Creating rule for ValidOrder");
+            Rule ruleValidOrder = rsAutoRouteFromIOI.AddRule("ValidOrder");
+
+            /* Order must be for Equity
+             * Order must have idle shares */
+
+            ruleValidOrder.AddRuleCondition(new RuleCondition("IsEquity", new GenericStringMatch("orderAssetClass", "Equity")));
+            ruleValidOrder.AddRuleCondition(new RuleCondition("MustHaveIdleShares", new HasIdleShares()));
 
         }
 
         //EasyIOI Notification
         public void ProcessNotification(IOINotification notification)
         {
-            if (notification.category == IOINotification.NotificationCategory.IOIDATA && (notification.type == IOINotification.NotificationType.NEW)) this.parseIOI(notification.GetIOI());
+            if (notification.category == IOINotification.NotificationCategory.IOIDATA && (notification.type == IOINotification.NotificationType.NEW))
+            {
+
+                //Create conflict set with all current orders.
+                IOI i = notification.GetIOI();
+
+                foreach (Order o in emsx.orders)
+                {
+                    CreateConflictDataSet(i, o);
+                }
+            }
         }
 
         //EasyMSX Notification
         public void ProcessNotification(EMSXNotification notification)
         {
-            if ((notification.category == EMSXNotification.NotificationCategory.ORDER) && (notification.type != EMSXNotification.NotificationType.UPDATE)) this.parseOrder(notification.getOrder());
+            if ((notification.category == EMSXNotification.NotificationCategory.ORDER) && (notification.type != EMSXNotification.NotificationType.UPDATE))
+            {
+                //Create conflict set with all current orders.
+                Order o = notification.getOrder();
+
+                foreach (IOI i in eioi.iois)
+                {
+                    CreateConflictDataSet(i, o);
+                }
+            }
         }
 
-        public void parseIOI(IOI i)
+        public void CreateConflictDataSet(IOI i, Order o)
         {
-            //Create conflict set with all current orders.
+            DataSet newDataSet = this.rmsx.CreateDataSet("conflict_" + i.field("id_value").Value() + o.field("EMSX_SEQUENCE").value());
 
-            DataSet newDataSet = this.rmsx.CreateDataSet("DS_IOI_" + i.field("id_value").Value());
-            newDataSet.AddDataPoint("handle", new IOIFieldDataPointSource(i, i.field("id_value")));
-            newDataSet.AddDataPoint("change", new IOIFieldDataPointSource(i, i.field("change")));
-            newDataSet.AddDataPoint("ticker", new IOIFieldDataPointSource(i, i.field("ioi_instrument_stock_security_ticker")));
-            newDataSet.AddDataPoint("type", new IOIFieldDataPointSource(i, i.field("ioi_instrument_type")));
-            newDataSet.AddDataPoint("bid_quantity", new IOIFieldDataPointSource(i, i.field("ioi_bid_size_quantity")));
-            newDataSet.AddDataPoint("offer_quantity", new IOIFieldDataPointSource(i, i.field("ioi_offer_size_quantity")));
-            
-            this.rmsx.GetRuleSet("IOI").Execute(newDataSet);
+            newDataSet.AddDataPoint("ioihandle", new IOIFieldDataPointSource(i, i.field("id_value")));
+            newDataSet.AddDataPoint("ioichange", new IOIFieldDataPointSource(i, i.field("change")));
+            newDataSet.AddDataPoint("ioiticker", new IOIFieldDataPointSource(i, i.field("ioi_instrument_stock_security_ticker")));
+            newDataSet.AddDataPoint("ioitype", new IOIFieldDataPointSource(i, i.field("ioi_instrument_type")));
+            newDataSet.AddDataPoint("ioigooduntil", new IOIFieldDataPointSource(i, i.field("ioi_goodUntil")));
+            newDataSet.AddDataPoint("ioibidquantity", new IOIFieldDataPointSource(i, i.field("ioi_bid_size_quantity")));
+            newDataSet.AddDataPoint("ioiofferquantity", new IOIFieldDataPointSource(i, i.field("ioi_offer_size_quantity")));
+            newDataSet.AddDataPoint("ioiisvalid", new GenericBooleanSource(false));
+
+            newDataSet.AddDataPoint("orderStatus", new EMSXFieldDataPointSource(o.field("EMSX_STATUS")));
+            newDataSet.AddDataPoint("orderNumber", new EMSXFieldDataPointSource(o.field("EMSX_SEQUENCE")));
+            newDataSet.AddDataPoint("orderWorking", new EMSXFieldDataPointSource(o.field("EMSX_WORKING")));
+            newDataSet.AddDataPoint("orderAmount", new EMSXFieldDataPointSource(o.field("EMSX_AMOUNT")));
+            newDataSet.AddDataPoint("orderIdleAmount", new EMSXFieldDataPointSource(o.field("EMSX_IDLE_AMOUNT")));
+            newDataSet.AddDataPoint("orderTicker", new EMSXFieldDataPointSource(o.field("EMSX_TICKER")));
+            newDataSet.AddDataPoint("orderSide", new EMSXFieldDataPointSource(o.field("EMSX_SIDE")));
+            newDataSet.AddDataPoint("orderAssetClass", new EMSXFieldDataPointSource(o.field("EMSX_ASSET_CLASS")));
+
+            this.rmsx.GetRuleSet("AutoRouteFromIOI").Execute(newDataSet);
         }
-
-        public void parseOrder(Order o)
-        {
-
-            // Create  conflict set with all current IOIs
-
-            DataSet newDataSet = this.rmsx.CreateDataSet("DS_OR_" + o.field("EMSX_SEQUENCE").value());
-            newDataSet.AddDataPoint("OrderStatus", new EMSXFieldDataPointSource(o.field("EMSX_STATUS")));
-            newDataSet.AddDataPoint("OrderNumber", new EMSXFieldDataPointSource(o.field("EMSX_SEQUENCE")));
-            newDataSet.AddDataPoint("OrderWorking", new EMSXFieldDataPointSource(o.field("EMSX_WORKING")));
-            newDataSet.AddDataPoint("OrderAmount", new EMSXFieldDataPointSource(o.field("EMSX_AMOUNT")));
-            newDataSet.AddDataPoint("OrderIdleAmount", new EMSXFieldDataPointSource(o.field("EMSX_IDLE_AMOUNT")));
-            newDataSet.AddDataPoint("OrderTicker", new EMSXFieldDataPointSource(o.field("EMSX_TICKER")));
-            newDataSet.AddDataPoint("OrderSide", new EMSXFieldDataPointSource(o.field("EMSX_SIDE")));
-
-            this.rmsx.GetRuleSet("EMSX").Execute(newDataSet);
-        }
-
 
         class IOIFieldDataPointSource : DataPointSource, IOINotificationHandler
         {
@@ -252,5 +276,99 @@ namespace IOIEMSXRMSXDemo
             }
         }
 
+        class GenericBooleanSource : DataPointSource
+        {
+            Boolean value;
+
+            internal GenericBooleanSource(Boolean initialValue)
+            {
+                SetValue(initialValue);
+            }
+
+            public override object GetValue()
+            {
+                return this.value;
+            }
+
+            public void SetValue(Boolean newValue)
+            {
+                this.value = newValue;
+                this.SetStale();
+            }
+        }
+
+        class GenericStringMatch : RuleEvaluator
+        {
+            String sourceName;
+            String targetValue;
+
+            public GenericStringMatch(String sourceName, String targetValue)
+            {
+                this.sourceName = sourceName;
+                this.targetValue = targetValue;
+                this.AddDependantDataPointName(sourceName);
+            }
+
+            public override bool Evaluate(DataSet dataSet)
+            {
+                DataPointSource source = dataSet.GetDataPoint(this.sourceName).GetSource();
+
+                String currentValue = Convert.ToString(source.GetValue());
+
+                return (currentValue == this.targetValue);
+            }
+        }
+
+        class IsIOINotExpired : RuleEvaluator
+        {
+            public IsIOINotExpired()
+            {
+                this.AddDependantDataPointName("ioigooduntil");
+            }
+
+            public override bool Evaluate(DataSet dataSet)
+            {
+                DataPointSource source = dataSet.GetDataPoint("ioigooduntil").GetSource();
+
+                DateTime currentValue = Convert.ToDateTime(source.GetValue());
+
+                return (currentValue < DateTime.Now);
+            }
+        }
+
+        class MarkIOIValid : ActionExecutor
+        {
+            public void Execute(DataSet dataSet)
+            {
+                GenericBooleanSource dps = (GenericBooleanSource)dataSet.GetDataPoint("ioiisvalid").GetSource();
+                dps.SetValue(true);
+            }
+        }
+
+        class PurgeDataSet :  ActionExecutor
+        {
+            RuleSet ruleSet;
+
+            internal PurgeDataSet(RuleSet ruleSet)
+            {
+                this.ruleSet = ruleSet;
+            }
+
+            public void Execute(DataSet dataSet)
+            {
+                this.ruleSet.PurgeDataSet(dataSet);
+            }
+        }
+
+        class HasIdleShares :  RuleEvaluator
+        {
+            public override bool Evaluate(DataSet dataSet)
+            {
+                EMSXFieldDataPointSource idleSource = (EMSXFieldDataPointSource)dataSet.GetDataPoint("OrderIdleAmount").GetSource();
+                int idleAmount = Convert.ToInt32(idleSource.GetValue());
+                return (idleAmount > 0);
+            }
+        }
     }
+
 }
