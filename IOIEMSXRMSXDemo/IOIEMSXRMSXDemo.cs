@@ -161,12 +161,20 @@ namespace IOIEMSXRMSXDemo
             ruleValidOrder.AddAction(this.rmsx.CreateAction("MarkOrderValid", ActionType.ON_TRUE, new MarkOrderValid()));
             ruleValidOrder.AddAction(purgeDataSet);
 
-            log("Creating rule for ReadyForProcessing");
-            Rule readyForProcessing = rsAutoRouteFromIOI.AddRule("ReadyForProcessing");
+            log("Creating rule for ValidPair");
+            Rule ruleValidPair = rsAutoRouteFromIOI.AddRule("ValidPair");
             /* both order and ioi must be valid
-             * neither order nor ioi can be consumed */
+             * matching side
+             */
 
-            readyForProcessing.AddRuleCondition(new RuleCondition("IOIAndOrderReady", new IOIAndOrderReady()));
+            ruleValidPair.AddRuleCondition(new RuleCondition("IOIAndOrderReady", new IOIAndOrderReady()));
+            ruleValidPair.AddRuleCondition(new RuleCondition("MatchingSide", new MatchingSideAndAmount()));
+            
+            /* Create new route */
+
+            ruleValidPair.AddAction(this.rmsx.CreateAction("CreateRoute"), ActionType.ON_TRUE, new CreateRoute()));
+            ruleValidOrder.AddAction(purgeDataSet);
+
         }
 
         //EasyIOI Notification
@@ -403,6 +411,31 @@ namespace IOIEMSXRMSXDemo
                 return (ioiValid && ordValid);
             }
         }
-    }
 
+        class MatchingSideAndAmount : RuleEvaluator
+        {
+            public override bool Evaluate(DataSet dataSet)
+            {
+                IOIFieldDataPointSource offerQtySource = (IOIFieldDataPointSource)dataSet.GetDataPoint("ioiofferquantity").GetSource();
+                IOIFieldDataPointSource bidQtySource = (IOIFieldDataPointSource)dataSet.GetDataPoint("ioibidquantity").GetSource();
+                EMSXFieldDataPointSource orderSideSource = (EMSXFieldDataPointSource)dataSet.GetDataPoint("orderSide").GetSource();
+                EMSXFieldDataPointSource orderIdleAmountSource = (EMSXFieldDataPointSource)dataSet.GetDataPoint("orderIdleAmount").GetSource();
+
+                String orderSide = orderSideSource.GetValue().ToString();
+                int orderIdleAmount = Convert.ToInt32(orderIdleAmountSource.GetValue());
+                int bidQty = Convert.ToInt32(bidQtySource.GetValue());
+                int offerQty = Convert.ToInt32(offerQtySource.GetValue());
+
+                return ((bidQty > orderIdleAmount && orderSide == "BUY") || (offerQty > orderIdleAmount && orderSide == "SELL"));
+            }
+        }
+
+        class CreateRoute : ActionExecutor
+        {
+            public void Execute(DataSet dataSet)
+            {
+             
+            }
+        }
+    }
 }
