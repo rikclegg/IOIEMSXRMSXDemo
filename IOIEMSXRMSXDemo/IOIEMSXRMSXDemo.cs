@@ -38,6 +38,7 @@ using Action = com.bloomberg.samples.rulemsx.Action;
 
 using com.bloomberg.emsx.samples;
 using EMSXNotificationHandler = com.bloomberg.emsx.samples.NotificationHandler;
+using EMSXMessageHandler = com.bloomberg.emsx.samples.MessageHandler;
 using EMSXNotification = com.bloomberg.emsx.samples.Notification;
 using EMSXField = com.bloomberg.emsx.samples.Field;
 using LogEMSX = com.bloomberg.emsx.samples.Log;
@@ -47,6 +48,8 @@ using IOINotificationHandler = com.bloomberg.ioiapi.samples.NotificationHandler;
 using IOINotification = com.bloomberg.ioiapi.samples.Notification;
 using IOIField = com.bloomberg.ioiapi.samples.Field;
 using LogIOI = com.bloomberg.ioiapi.samples.Log;
+
+using Bloomberglp.Blpapi;
 
 namespace IOIEMSXRMSXDemo
 {
@@ -168,11 +171,12 @@ namespace IOIEMSXRMSXDemo
              */
 
             ruleValidPair.AddRuleCondition(new RuleCondition("IOIAndOrderReady", new IOIAndOrderReady()));
+            ruleValidPair.AddRuleCondition(new RuleCondition("MatchingTicker", new MatchingTicker()));
             ruleValidPair.AddRuleCondition(new RuleCondition("MatchingSide", new MatchingSideAndAmount()));
             
             /* Create new route */
 
-            ruleValidPair.AddAction(this.rmsx.CreateAction("CreateRoute"), ActionType.ON_TRUE, new CreateRoute()));
+            ruleValidPair.AddAction(this.rmsx.CreateAction("CreateRoute", ActionType.ON_TRUE, new CreateRoute(this)));
             ruleValidOrder.AddAction(purgeDataSet);
 
         }
@@ -219,6 +223,7 @@ namespace IOIEMSXRMSXDemo
             newDataSet.AddDataPoint("ioigooduntil", new IOIFieldDataPointSource(i, i.field("ioi_goodUntil")));
             newDataSet.AddDataPoint("ioibidquantity", new IOIFieldDataPointSource(i, i.field("ioi_bid_size_quantity")));
             newDataSet.AddDataPoint("ioiofferquantity", new IOIFieldDataPointSource(i, i.field("ioi_offer_size_quantity")));
+            newDataSet.AddDataPoint("ioiroutingbroker", new IOIFieldDataPointSource(i, i.field("ioi_routing_broker")));
             newDataSet.AddDataPoint("ioiisvalid", new GenericBooleanSource(false));
 
             newDataSet.AddDataPoint("orderStatus", new EMSXFieldDataPointSource(o.field("EMSX_STATUS")));
@@ -430,12 +435,84 @@ namespace IOIEMSXRMSXDemo
             }
         }
 
-        class CreateRoute : ActionExecutor
+
+        class MatchingTicker : RuleEvaluator
         {
-            public void Execute(DataSet dataSet)
+            public override bool Evaluate(DataSet dataSet)
             {
-             
+                IOIFieldDataPointSource ioiTickerSource = (IOIFieldDataPointSource)dataSet.GetDataPoint("ioiticker").GetSource();
+                EMSXFieldDataPointSource orderTickerSource = (EMSXFieldDataPointSource)dataSet.GetDataPoint("orderSide").GetSource();
+
+                String ioiTicker = ioiTickerSource.GetValue().ToString() + " Equity";
+                String orderTicker = orderTickerSource.GetValue().ToString();
+
+                return (ioiTicker == orderTicker);
             }
         }
+        
+
+        class CreateRoute : ActionExecutor,EMSXMessageHandler
+        {
+
+            IOIEMSXRMSXDemo op;
+
+            internal CreateRoute(IOIEMSXRMSXDemo op)
+            {
+                this.op = op;
+            }
+
+            public void Execute(DataSet dataSet)
+            {
+
+                IOIFieldDataPointSource offerQtySource = (IOIFieldDataPointSource)dataSet.GetDataPoint("ioiofferquantity").GetSource();
+                IOIFieldDataPointSource bidQtySource = (IOIFieldDataPointSource)dataSet.GetDataPoint("ioibidquantity").GetSource();
+                IOIFieldDataPointSource brokerSource = (IOIFieldDataPointSource)dataSet.GetDataPoint("ioibidquantity").GetSource();
+                IOIFieldDataPointSource ioiBrokerSource = (IOIFieldDataPointSource)dataSet.GetDataPoint("ioiroutingbroker").GetSource();
+
+                EMSXFieldDataPointSource orderNumberSource = (EMSXFieldDataPointSource)dataSet.GetDataPoint("orderNumber").GetSource();
+                EMSXFieldDataPointSource orderSideSource = (EMSXFieldDataPointSource)dataSet.GetDataPoint("orderSide").GetSource();
+                EMSXFieldDataPointSource orderIdleAmountSource = (EMSXFieldDataPointSource)dataSet.GetDataPoint("orderIdleAmount").GetSource();
+                EMSXFieldDataPointSource orderTickerSource = (EMSXFieldDataPointSource)dataSet.GetDataPoint("orderTicker").GetSource();
+
+                Request req = this.op.emsx.createRequest("RouteEx");
+
+                req.Set("EMSX_SEQUENCE", Convert.ToInt32(orderNumberSource.GetValue()));
+                req.Set("EMSX_AMOUNT", Convert.ToInt32(offerQtySource.GetValue()));
+                req.Set("EMSX_BROKER", ioiBrokerSource.GetValue().ToString());
+                req.Set("EMSX_HAND_INSTRUCTION", "ANY");
+                req.Set("EMSX_ORDER_TYPE", "MKT");
+                req.Set("EMSX_TICKER", orderTickerSource.GetValue().ToString());
+                req.Set("EMSX_TIF", "DAY");
+
+                this.op.emsx.sendRequest(req, this);
+
+                this.op.PurgeConflictDataSets(dataSet);
+            }
+
+            public void processMessage(Message message)
+            {
+                log("EasyMSX Message: " + message);
+            }
+        }
+
+        public void PurgeConflictDataSets(DataSet conflictDs)
+        {
+
+            RuleSet rs = rmsx.GetRuleSet("AutoRouteFromIOI");
+
+            foreach (DataSet ds in rmsx.GetDataSets())
+            {
+                if(ds.GetDataPoint("orderNumber").GetValue().ToString() == conflictDs.GetDataPoint("orderNumber").GetValue().ToString())
+                {
+                    rs.PurgeDataSet(ds);
+                }
+
+                if (ds.GetDataPoint("ioihandle").GetValue().ToString() == conflictDs.GetDataPoint("ioihandle").GetValue().ToString())
+                {
+                    rs.PurgeDataSet(ds);
+                }
+            }
+        }
+
     }
 }

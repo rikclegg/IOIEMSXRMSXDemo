@@ -40,6 +40,9 @@
     <None Include="App.config" />
   </ItemGroup>
   <ItemGroup>
+    <Reference Include="Bloomberglp.Blpapi">
+      <HintPath>..\..\..\..\..\..\blp\DAPI\APIv3\DotnetAPI\v3.8.9.2\lib\Bloomberglp.Blpapi.dll</HintPath>
+    </Reference>
     <Reference Include="EasyIOI">
       <HintPath>..\..\cs_EasyIOI\EasyIOI\bin\Debug\EasyIOI.dll</HintPath>
     </Reference>
