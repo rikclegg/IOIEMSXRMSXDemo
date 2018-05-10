@@ -190,6 +190,8 @@ namespace IOIEMSXRMSXDemo
                 //Create conflict set with all current orders.
                 IOI i = notification.GetIOI();
 
+                log("Creating conflict set for IOI: " + i.field("handle").Value().ToString());
+
                 foreach (Order o in emsx.orders)
                 {
                     CreateConflictDataSet(i, o);
@@ -205,6 +207,8 @@ namespace IOIEMSXRMSXDemo
                 //Create conflict set with all current orders.
                 Order o = notification.getOrder();
 
+                log("Creating conflict set for Order: " + o.field("EMSX_SEQUENCE").value().ToString());
+
                 foreach (IOI i in eioi.iois)
                 {
                     CreateConflictDataSet(i, o);
@@ -215,6 +219,8 @@ namespace IOIEMSXRMSXDemo
         public void CreateConflictDataSet(IOI i, Order o)
         {
             DataSet newDataSet = this.rmsx.CreateDataSet("conflict_" + i.field("id_value").Value() + o.field("EMSX_SEQUENCE").value());
+
+            log("Creating DataSet: " + newDataSet.GetName());
 
             newDataSet.AddDataPoint("ioihandle", new IOIFieldDataPointSource(i, i.field("id_value")));
             newDataSet.AddDataPoint("ioichange", new IOIFieldDataPointSource(i, i.field("change")));
@@ -328,6 +334,7 @@ namespace IOIEMSXRMSXDemo
 
             public GenericStringMatch(String sourceName, String targetValue)
             {
+                log("Creating GenericStringMatch evaluator for " + sourceName + " - target value=" + targetValue);
                 this.sourceName = sourceName;
                 this.targetValue = targetValue;
                 this.AddDependantDataPointName(sourceName);
@@ -339,7 +346,11 @@ namespace IOIEMSXRMSXDemo
 
                 String currentValue = Convert.ToString(source.GetValue());
 
-                return (currentValue == this.targetValue);
+                bool res = (currentValue == this.targetValue);
+
+                log("Evaluating GenericStringMatch for " + sourceName + " - target value=" + this.targetValue + " : actual value=" + currentValue + " : result=" + res.ToString());
+
+                return res;
             }
         }
 
@@ -347,6 +358,7 @@ namespace IOIEMSXRMSXDemo
         {
             public IsIOINotExpired()
             {
+                log("Creating IsIOINotExpired evaluator for ioigooduntil");
                 this.AddDependantDataPointName("ioigooduntil");
             }
 
@@ -356,7 +368,11 @@ namespace IOIEMSXRMSXDemo
 
                 DateTime currentValue = Convert.ToDateTime(source.GetValue());
 
-                return (currentValue < DateTime.Now);
+                bool res = (currentValue < DateTime.Now);
+
+                log("Evaluating IsIOINotExpired for ioigooduntil - result=" + res.ToString());
+
+                return res;
             }
         }
 
@@ -364,6 +380,7 @@ namespace IOIEMSXRMSXDemo
         {
             public void Execute(DataSet dataSet)
             {
+                log("Executing MarkIOIValid Action on DataSet: " + dataSet.GetName());
                 GenericBooleanSource dps = (GenericBooleanSource)dataSet.GetDataPoint("ioiisvalid").GetSource();
                 dps.SetValue(true);
             }
@@ -373,6 +390,7 @@ namespace IOIEMSXRMSXDemo
         {
             public void Execute(DataSet dataSet)
             {
+                log("Executing MarkOrderValid Action on DataSet: " + dataSet.GetName());
                 GenericBooleanSource dps = (GenericBooleanSource)dataSet.GetDataPoint("orderisvalid").GetSource();
                 dps.SetValue(true);
             }
@@ -389,6 +407,7 @@ namespace IOIEMSXRMSXDemo
 
             public void Execute(DataSet dataSet)
             {
+                log("Executing PurgeDataSet Action on DataSet: " + dataSet.GetName());
                 this.ruleSet.PurgeDataSet(dataSet);
             }
         }
@@ -397,9 +416,15 @@ namespace IOIEMSXRMSXDemo
         {
             public override bool Evaluate(DataSet dataSet)
             {
+
                 EMSXFieldDataPointSource idleSource = (EMSXFieldDataPointSource)dataSet.GetDataPoint("OrderIdleAmount").GetSource();
                 int idleAmount = Convert.ToInt32(idleSource.GetValue());
-                return (idleAmount > 0);
+
+                bool res = (idleAmount > 0);
+
+                log("Evaluating HasIdleShares on DataSet: " + dataSet.GetName() + "  result=" + res.ToString());
+
+                return res;
             }
         }
 
@@ -413,7 +438,11 @@ namespace IOIEMSXRMSXDemo
                 bool ioiValid = Convert.ToBoolean(ioiSource.GetValue());
                 bool ordValid = Convert.ToBoolean(ordSource.GetValue());
 
-                return (ioiValid && ordValid);
+                bool res = (ioiValid && ordValid);
+
+                log("Evaluating IOIAndOrderReady for DataSet: " + dataSet.GetName() + " - result=" + res.ToString());
+
+                return res;
             }
         }
 
@@ -431,7 +460,11 @@ namespace IOIEMSXRMSXDemo
                 int bidQty = Convert.ToInt32(bidQtySource.GetValue());
                 int offerQty = Convert.ToInt32(offerQtySource.GetValue());
 
-                return ((bidQty > orderIdleAmount && orderSide == "BUY") || (offerQty > orderIdleAmount && orderSide == "SELL"));
+                bool res = ((bidQty > orderIdleAmount && orderSide == "BUY") || (offerQty > orderIdleAmount && orderSide == "SELL"));
+
+                log("Evaluating MatchingSideAndAmount for DataSet: " + dataSet.GetName() + " - result=" + res.ToString());
+
+                return res;
             }
         }
 
@@ -446,7 +479,12 @@ namespace IOIEMSXRMSXDemo
                 String ioiTicker = ioiTickerSource.GetValue().ToString() + " Equity";
                 String orderTicker = orderTickerSource.GetValue().ToString();
 
-                return (ioiTicker == orderTicker);
+                bool res =  (ioiTicker == orderTicker);
+
+                log("Evaluating MatchingTicker for DataSet: " + dataSet.GetName() + " - result=" + res.ToString());
+
+                return res;
+
             }
         }
         
@@ -484,7 +522,11 @@ namespace IOIEMSXRMSXDemo
                 req.Set("EMSX_TICKER", orderTickerSource.GetValue().ToString());
                 req.Set("EMSX_TIF", "DAY");
 
+                log("Sending request: " + req.ToString());
+
                 this.op.emsx.sendRequest(req, this);
+
+                log("Purging all related conflict datasets.");
 
                 this.op.PurgeConflictDataSets(dataSet);
             }
@@ -504,15 +546,16 @@ namespace IOIEMSXRMSXDemo
             {
                 if(ds.GetDataPoint("orderNumber").GetValue().ToString() == conflictDs.GetDataPoint("orderNumber").GetValue().ToString())
                 {
+                    log("Purging DataSet: " + ds.GetName() + " - matches order");
                     rs.PurgeDataSet(ds);
                 }
 
                 if (ds.GetDataPoint("ioihandle").GetValue().ToString() == conflictDs.GetDataPoint("ioihandle").GetValue().ToString())
                 {
+                    log("Purging DataSet: " + ds.GetName() + " - matches ioi");
                     rs.PurgeDataSet(ds);
                 }
             }
         }
-
     }
 }
