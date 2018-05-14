@@ -190,7 +190,7 @@ namespace IOIEMSXRMSXDemo
                 //Create conflict set with all current orders.
                 IOI i = notification.GetIOI();
 
-                log("Creating conflict set for IOI: " + i.field("handle").Value().ToString());
+                log("Creating conflict set for IOI: " + i.field("id_value").Value().ToString());
 
                 foreach (Order o in emsx.orders)
                 {
@@ -218,11 +218,11 @@ namespace IOIEMSXRMSXDemo
 
         public void CreateConflictDataSet(IOI i, Order o)
         {
-            DataSet newDataSet = this.rmsx.CreateDataSet("conflict_" + i.field("id_value").Value() + o.field("EMSX_SEQUENCE").value());
+            DataSet newDataSet = this.rmsx.CreateDataSet("conflict_I" + i.field("id_value").Value() + "|O" + o.field("EMSX_SEQUENCE").value());
 
             log("Creating DataSet: " + newDataSet.GetName());
 
-            newDataSet.AddDataPoint("ioihandle", new IOIFieldDataPointSource(i, i.field("id_value")));
+            newDataSet.AddDataPoint("ioiid", new IOIFieldDataPointSource(i, i.field("id_value")));
             newDataSet.AddDataPoint("ioichange", new IOIFieldDataPointSource(i, i.field("change")));
             newDataSet.AddDataPoint("ioiticker", new IOIFieldDataPointSource(i, i.field("ioi_instrument_stock_security_ticker")));
             newDataSet.AddDataPoint("ioitype", new IOIFieldDataPointSource(i, i.field("ioi_instrument_type")));
@@ -253,20 +253,25 @@ namespace IOIEMSXRMSXDemo
             internal IOIFieldDataPointSource(IOI i, IOIField field)
             {
                 this.field = field;
-                this.value = field.Value();
+                if(field!=null) {
+                    this.value = field.Value();
+                    i.addNotificationHandler(this);
+                }
+                else this.value = "";
 
-                i.addNotificationHandler(this);
 
             }
 
             public override object GetValue()
             {
-                return this.field.Value();
+                if (this.field != null) return this.field.Value();
+                else return this.value;
             }
 
             public object GetPreviousValue()
             {
-                return this.field.previousValue();
+                if (this.field != null) return this.field.previousValue();
+                else return this.value;
             }
 
             public void ProcessNotification(IOINotification notification)
@@ -368,9 +373,11 @@ namespace IOIEMSXRMSXDemo
 
                 DateTime currentValue = Convert.ToDateTime(source.GetValue());
 
-                bool res = (currentValue < DateTime.Now);
+                DateTime now = DateTime.Now;
 
-                log("Evaluating IsIOINotExpired for ioigooduntil - result=" + res.ToString());
+                bool res = (currentValue > now);
+
+                log("Evaluating IsIOINotExpired for DataSet: " + dataSet.GetName() + " - values: current=" + currentValue + " / now=" + now + "  - result=" + res.ToString());
 
                 return res;
             }
@@ -457,12 +464,31 @@ namespace IOIEMSXRMSXDemo
 
                 String orderSide = orderSideSource.GetValue().ToString();
                 int orderIdleAmount = Convert.ToInt32(orderIdleAmountSource.GetValue());
-                int bidQty = Convert.ToInt32(bidQtySource.GetValue());
-                int offerQty = Convert.ToInt32(offerQtySource.GetValue());
 
-                bool res = ((bidQty > orderIdleAmount && orderSide == "BUY") || (offerQty > orderIdleAmount && orderSide == "SELL"));
+                int bidQty;
+                try
+                {
+                    bidQty = Convert.ToInt32(bidQtySource.GetValue());
+                }
+                catch
+                {
+                    bidQty = 0;
+                }
 
-                log("Evaluating MatchingSideAndAmount for DataSet: " + dataSet.GetName() + " - result=" + res.ToString());
+                int offerQty;
+
+                try
+                {
+                    offerQty = Convert.ToInt32(offerQtySource.GetValue());
+                }
+                catch
+                {
+                    offerQty = 0;
+                }
+
+                bool res = ((bidQty > 0 && bidQty < orderIdleAmount && orderSide == "SELL") || (offerQty > 0 && offerQty < orderIdleAmount && orderSide == "BUY"));
+
+                log("Evaluating MatchingSideAndAmount for DataSet: " + dataSet.GetName() + " - orderSide=" + orderSide + " orderIdleAmount=" + orderIdleAmount + " bidQty=" + bidQty + " offerQty=" + offerQty + " - result=" + res.ToString());
 
                 return res;
             }
@@ -474,14 +500,14 @@ namespace IOIEMSXRMSXDemo
             public override bool Evaluate(DataSet dataSet)
             {
                 IOIFieldDataPointSource ioiTickerSource = (IOIFieldDataPointSource)dataSet.GetDataPoint("ioiticker").GetSource();
-                EMSXFieldDataPointSource orderTickerSource = (EMSXFieldDataPointSource)dataSet.GetDataPoint("orderSide").GetSource();
+                EMSXFieldDataPointSource orderTickerSource = (EMSXFieldDataPointSource)dataSet.GetDataPoint("orderTicker").GetSource();
 
                 String ioiTicker = ioiTickerSource.GetValue().ToString() + " Equity";
                 String orderTicker = orderTickerSource.GetValue().ToString();
 
                 bool res =  (ioiTicker == orderTicker);
 
-                log("Evaluating MatchingTicker for DataSet: " + dataSet.GetName() + " - result=" + res.ToString());
+                log("Evaluating MatchingTicker for DataSet: " + dataSet.GetName() + " - IOITicker: " + ioiTicker + " - OrderTicker: " + orderTicker +  " - result=" + res.ToString());
 
                 return res;
 
@@ -515,7 +541,13 @@ namespace IOIEMSXRMSXDemo
                 Request req = this.op.emsx.createRequest("RouteEx");
 
                 req.Set("EMSX_SEQUENCE", Convert.ToInt32(orderNumberSource.GetValue()));
-                req.Set("EMSX_AMOUNT", Convert.ToInt32(offerQtySource.GetValue()));
+
+                String orderSide = orderSideSource.GetValue().ToString();
+                int qty;
+                if (orderSide == "SELL") qty = Convert.ToInt32(offerQtySource.GetValue());
+                else qty = Convert.ToInt32(bidQtySource.GetValue());
+
+                req.Set("EMSX_AMOUNT", qty);
                 req.Set("EMSX_BROKER", ioiBrokerSource.GetValue().ToString());
                 req.Set("EMSX_HAND_INSTRUCTION", "ANY");
                 req.Set("EMSX_ORDER_TYPE", "MKT");
@@ -550,7 +582,7 @@ namespace IOIEMSXRMSXDemo
                     rs.PurgeDataSet(ds);
                 }
 
-                if (ds.GetDataPoint("ioihandle").GetValue().ToString() == conflictDs.GetDataPoint("ioihandle").GetValue().ToString())
+                if (ds.GetDataPoint("ioiid").GetValue().ToString() == conflictDs.GetDataPoint("ioiid").GetValue().ToString())
                 {
                     log("Purging DataSet: " + ds.GetName() + " - matches ioi");
                     rs.PurgeDataSet(ds);
