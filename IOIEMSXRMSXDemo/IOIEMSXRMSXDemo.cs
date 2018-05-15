@@ -544,11 +544,12 @@ namespace IOIEMSXRMSXDemo
 
                 String orderSide = orderSideSource.GetValue().ToString();
                 int qty;
-                if (orderSide == "SELL") qty = Convert.ToInt32(offerQtySource.GetValue());
+                if (orderSide == "BUY") qty = Convert.ToInt32(offerQtySource.GetValue());
                 else qty = Convert.ToInt32(bidQtySource.GetValue());
 
                 req.Set("EMSX_AMOUNT", qty);
-                req.Set("EMSX_BROKER", ioiBrokerSource.GetValue().ToString());
+                //req.Set("EMSX_BROKER", ioiBrokerSource.GetValue().ToString());
+                req.Set("EMSX_BROKER", "BB");
                 req.Set("EMSX_HAND_INSTRUCTION", "ANY");
                 req.Set("EMSX_ORDER_TYPE", "MKT");
                 req.Set("EMSX_TICKER", orderTickerSource.GetValue().ToString());
